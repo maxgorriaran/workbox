@@ -19,6 +19,36 @@ import {
 } from '~/utils/subagentContent';
 
 describe('child activity adapters', () => {
+  it('retains tool attachment owners and nested child activity for the detail renderer', () => {
+    const nested = [{ type: ContentTypes.TEXT, text: 'Nested result' }] as TMessageContentParts[];
+    const activity = adaptLivePersistedActivity({
+      title: 'Artist',
+      initialProgress: 1,
+      isSubmitting: false,
+      progress: null,
+      persistedContent: [
+        {
+          type: ContentTypes.TOOL_CALL,
+          agentId: 'child-agent',
+          tool_call: {
+            id: 'repeated-id',
+            name: 'subagent',
+            stepId: 'child-step',
+            progress: 1,
+            subagentIdentity: { subagentKind: 'agent', subagentAgentId: 'grandchild-agent' },
+            subagent_content: nested,
+          },
+        },
+      ] as unknown as TMessageContentParts[],
+    });
+    expect(activity.items[0]).toMatchObject({
+      toolCallId: 'repeated-id',
+      agentId: 'child-agent',
+      stepId: 'child-step',
+      subagentContent: nested,
+      subagentIdentity: { subagentKind: 'agent', subagentAgentId: 'grandchild-agent' },
+    });
+  });
   it('passes child dispatch and completed durations to the generic tool card', () => {
     const progress = {
       subagentRunId: 'child',

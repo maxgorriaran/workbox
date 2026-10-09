@@ -24,6 +24,7 @@ import { useOpenSubagentPanel } from '~/components/Chat/Subagents/surface';
 import { getSubagentPrompt } from '~/components/Chat/Subagents/prompt';
 import { MessageContext } from '~/Providers/MessageContext';
 import { useShareContext } from '~/Providers/ShareContext';
+import { useMediaContext } from '~/Providers/MediaContext';
 import MessageIcon from '~/components/Share/MessageIcon';
 import { parseSubagentBackgroundHandle } from './handle';
 import { isError } from '../ToolOutput/OutputRenderer';
@@ -192,6 +193,8 @@ export default function SubagentCall({
   const setSelectedSubagent = useSetAtom(activeSubagentPanel);
   const openPanel = useOpenSubagentPanel();
   const agentsMap = useAgentsMapContext();
+  const { toolAttachments } = useMediaContext();
+  const activityAttachments = toolAttachments ?? attachments;
   const backgroundHandle = useMemo(
     () => parseSubagentBackgroundHandle(output, args),
     [output, args],
@@ -350,6 +353,7 @@ export default function SubagentCall({
       ...(prompt == null ? {} : { prompt }),
       ...(backgroundHandle == null ? { legacyOutput: output } : {}),
       ...(persistedContent == null ? {} : { persistedContent }),
+      ...(activityAttachments == null ? {} : { attachments: activityAttachments }),
       ...(contentPreview == null ? {} : { contentPreview }),
       initialProgress,
       isSubmitting,
@@ -365,6 +369,7 @@ export default function SubagentCall({
     }),
     [
       backgroundHandle,
+      activityAttachments,
       canOpenDurablePanel,
       contentPreview,
       initialProgress,

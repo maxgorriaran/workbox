@@ -38,11 +38,12 @@ import { isPreviewedToolCallPart, PreviewedToolCallPart } from './hydration';
 import { MediaContext, MessageContext, SearchContext } from '~/Providers';
 import MemoryArtifacts, { hasMemoryArtifacts } from './MemoryArtifacts';
 import { hasParallelLanes, parallelLaneGroups } from '~/utils/lanes';
+import { EmptyText, AgentUpdate, AttachmentGroup } from './Parts';
+import { isImageAttachment } from './Parts/attachmentTypes';
 import PendingSkillCall from './Parts/PendingSkillCall';
 import ActivityPhaseGroup from './ActivityPhaseGroup';
 import { hasPendingApprovalInPart } from '~/utils';
 import EditContentParts from './EditContentParts';
-import { EmptyText, AgentUpdate } from './Parts';
 import ApprovalProvider from './ApprovalContext';
 import Sources from '~/components/Web/Sources';
 import ToolCallGroup from './ToolCallGroup';
@@ -123,7 +124,7 @@ const buildToolCallStepOwners = (
   return owners;
 };
 
-const collectMessageAppAttachments = (
+const collectMessageToolAttachments = (
   content: Array<TMessageContentParts | undefined> | undefined,
   attachments: TAttachment[] | undefined,
 ): TAttachment[] => {
@@ -141,9 +142,7 @@ const collectMessageAppAttachments = (
       getSiblingStepIds(part, ownersByToolCallId),
     );
     for (const attachment of routed ?? []) {
-      if (attachment.type === Tools.ui_resources) {
-        collected.add(attachment);
-      }
+      collected.add(attachment);
     }
   }
   return Array.from(collected);
@@ -291,6 +290,8 @@ type ContentPartsProps = {
   authorHeader?: ReactNode;
   conversationId?: string | null;
   attachments?: TAttachment[];
+  /** Child panels share the parent's lookup pool, but must not display unmatched sibling images. */
+  renderUnmatchedImages?: boolean;
   searchResults?: { [key: string]: SearchResultData };
   isCreatedByUser: boolean;
   showThinking: boolean;
@@ -1326,10 +1327,52 @@ const ContentParts = memo(function ContentParts(props: ContentPartsProps) {
     previousIdentity.isSubmitting = isSubmitting;
   }
   const appRenderScope = appRenderIdentity.current!.scope;
-  const messageAppAttachments = useMemo(
-    () => collectMessageAppAttachments(props.content, attachments),
+  const messageToolAttachments = useMemo(
+    () => collectMessageToolAttachments(props.content, attachments),
     [props.content, attachments],
   );
+  const messageAppAttachments = useMemo(
+    () => messageToolAttachments.filter((attachment) => attachment.type === Tools.ui_resources),
+    [messageToolAttachments],
+  );
+  const unmatchedImages = useMemo(() => {
+    if (
+      isCreatedByUser ||
+      props.edit ||
+      props.hideAttachments ||
+      props.renderUnmatchedImages === false ||
+      !props.content?.some(
+        (part) =>
+          part?.type === ContentTypes.TOOL_CALL &&
+          (part.tool_call as Agents.ToolCall | undefined)?.name === Constants.SUBAGENT,
+      )
+    ) {
+      return [];
+    }
+    const routed = new Set(messageToolAttachments);
+    const imageParts = props.content.filter((part) => part?.type === ContentTypes.IMAGE_FILE);
+    return (attachments ?? []).filter(
+      (attachment) =>
+        !!attachment.toolCallId &&
+        isImageAttachment(attachment) &&
+        !routed.has(attachment) &&
+        !imageParts.some(
+          (part) =>
+            part?.type === ContentTypes.IMAGE_FILE &&
+            (part.image_file.filepath === attachment.filepath ||
+              (part.image_file.file_id != null &&
+                part.image_file.file_id === (attachment as { file_id?: string }).file_id)),
+        ),
+    );
+  }, [
+    attachments,
+    isCreatedByUser,
+    messageToolAttachments,
+    props.content,
+    props.edit,
+    props.hideAttachments,
+    props.renderUnmatchedImages,
+  ]);
   const suppressedAppAttachments = useMemo<ReadonlySet<TAttachment>>(
     () => new Set(messageAppAttachments),
     [messageAppAttachments],
@@ -1388,7 +1431,11 @@ const ContentParts = memo(function ContentParts(props: ContentPartsProps) {
    *  itself referentially stable there, so a churning array cannot push a new
    *  value at every markdown block in the message. */
   const attachmentsByName = useMemo(() => buildAttachmentsByName(attachments), [attachments]);
-  const media = useMemo(() => ({ attachmentsByName }), [attachmentsByName]);
+  const toolAttachments = attachments?.length ? attachments : undefined;
+  const media = useMemo(
+    () => ({ attachmentsByName, toolAttachments }),
+    [attachmentsByName, toolAttachments],
+  );
   return (
     <MessageContext.Provider value={messageContext}>
       <MediaContext.Provider value={media}>
@@ -1398,6 +1445,7 @@ const ContentParts = memo(function ContentParts(props: ContentPartsProps) {
               {/* A nested message (a subagent's) is not the sole call of the group around it. */}
               <SoleToolContext.Provider value={undefined}>
                 <ContentPartsBody {...props} />
+                {unmatchedImages.length > 0 && <AttachmentGroup attachments={unmatchedImages} />}
               </SoleToolContext.Provider>
             </MCPAppSuppressionContext.Provider>
             <MCPAppViews

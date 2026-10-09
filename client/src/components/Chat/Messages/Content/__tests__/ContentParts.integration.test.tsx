@@ -134,6 +134,7 @@ jest.mock('../Parts', () => ({
   },
   ExecuteCode: () => <div data-testid="execute-code" />,
   ImageGen: () => <div data-testid="image-gen" />,
+  SubagentCall: () => <div data-testid="subagent-call" />,
   AgentUpdate: () => <div data-testid="agent-update" />,
   EmptyText: () => <div data-testid="empty-text" />,
   Reasoning: () => <div data-testid="reasoning" />,
@@ -277,6 +278,195 @@ const renderContentParts = (props: React.ComponentProps<typeof ContentParts>) =>
       <ContentParts {...props} />
     </RecoilRoot>,
   );
+
+describe('ContentParts integration: nested tool image outputs', () => {
+  const baseProps = {
+    messageId: 'msg1',
+    conversationId: 'c1',
+    isCreatedByUser: false,
+    isLast: true,
+    isSubmitting: false,
+    showThinking: false,
+    isLatestMessage: true,
+  };
+  const child = makeOwnedToolCall('image_gen_oai', 'child-image', 'child-step', 'child-agent');
+  const image = {
+    ...imageAttachment('child-image', 'child.png'),
+    agentId: 'child-agent',
+    stepId: 'child-step',
+  };
+  const parent = (children?: TMessageContentParts[], preview = false): TMessageContentParts =>
+    ({
+      type: ContentTypes.TOOL_CALL,
+      agentId: 'parent-agent',
+      tool_call: {
+        id: 'delegate',
+        name: Constants.SUBAGENT,
+        args: '{"type":"artist"}',
+        output: 'Done',
+        progress: 1,
+        ...(children == null ? {} : { subagent_content: children }),
+        ...(preview ? { subagentContentOmitted: true, subagentContentParts: 1 } : {}),
+      },
+    }) as TMessageContentParts;
+
+  it.each(['live', 'saved', 'preview', 'nested'] as const)(
+    'renders a child image once outside the collapsed activity in %s messages',
+    (mode) => {
+      let children: TMessageContentParts[] | undefined;
+      if (mode === 'saved') children = [child];
+      if (mode === 'nested') children = [parent([child])];
+      const content = [parent(children, mode === 'preview'), makeMcpToolCall('other')];
+      renderContentParts({
+        ...baseProps,
+        content,
+        attachments: [image],
+        isSubmitting: mode === 'live',
+      });
+      const groups = screen
+        .getAllByTestId('attachment-group')
+        .filter((group) => group.dataset.paths?.includes('/files/child.png'));
+      expect(groups).toHaveLength(1);
+      expect(groups[0]).toHaveAttribute('data-count', '1');
+      expect(groups[0].closest('[aria-hidden="true"]')).toBeNull();
+    },
+  );
+
+  it('does not duplicate ordinary direct tool images', () => {
+    renderContentParts({
+      ...baseProps,
+      content: [parent(), makeMcpToolCall('child-image'), makeMcpToolCall('other')],
+      attachments: [image],
+    });
+    expect(
+      screen
+        .getAllByTestId('attachment-group')
+        .filter((group) => group.dataset.paths?.includes('/files/child.png')),
+    ).toHaveLength(1);
+  });
+
+  it('keeps a child image out of a colliding parent tool and renders it at message level', () => {
+    renderContentParts({
+      ...baseProps,
+      content: [
+        parent(),
+        makeOwnedToolCall(
+          `getTinyImage${MCP_DELIMITER}Everything`,
+          'child-image',
+          'parent-step',
+          'parent-agent',
+        ),
+      ],
+      attachments: [image],
+    });
+    expect(screen.getByTestId('attachment-group')).toHaveAttribute(
+      'data-paths',
+      '/files/child.png',
+    );
+  });
+
+  it('respects a host that hides attachments', () => {
+    renderContentParts({
+      ...baseProps,
+      content: [parent([child])],
+      attachments: [image],
+      hideAttachments: true,
+    });
+    expect(screen.queryByTestId('attachment-group')).not.toBeInTheDocument();
+  });
+
+  it('does not expose sibling outputs in a child activity view', () => {
+    renderContentParts({
+      ...baseProps,
+      content: [parent(), makeMcpToolCall('selected-child')],
+      attachments: [image],
+      renderUnmatchedImages: false,
+    });
+    expect(screen.queryByTestId('attachment-group')).not.toBeInTheDocument();
+  });
+
+  it('ignores uploads and non-image outputs in the unmatched image row', () => {
+    const upload = { ...image, toolCallId: '' };
+    const report = { ...image, filename: 'report.csv', filepath: '/files/report.csv' };
+    renderContentParts({ ...baseProps, content: [parent()], attachments: [upload, report] });
+    expect(screen.queryByTestId('attachment-group')).not.toBeInTheDocument();
+  });
+
+  it('does not duplicate images already represented by an image content part', () => {
+    renderContentParts({
+      ...baseProps,
+      content: [
+        parent(),
+        {
+          type: ContentTypes.IMAGE_FILE,
+          image_file: { file_id: 'child-file', filepath: '/files/child.png' },
+        } as TMessageContentParts,
+      ],
+      attachments: [image],
+    });
+    expect(screen.getByTestId('image')).toBeInTheDocument();
+    expect(screen.queryByTestId('attachment-group')).not.toBeInTheDocument();
+  });
+
+  it('renders late live attachment events once and retains them after message finalization', () => {
+    let emit: ((attachment: TAttachment) => void) | undefined;
+    function LiveMessage({ saved }: { saved: boolean }) {
+      const handle = useAttachmentHandler();
+      const { attachments } = useAttachments({
+        messageId: 'msg1',
+        attachments: saved ? [image] : [],
+      });
+      emit = (data) => handle({ data, submission: {} as EventSubmission });
+      return (
+        <ContentParts
+          {...baseProps}
+          content={[parent(saved ? [child] : undefined)]}
+          attachments={attachments}
+          isSubmitting={!saved}
+        />
+      );
+    }
+    const frame = (saved: boolean) => (
+      <RecoilRoot>
+        <LiveMessage saved={saved} />
+      </RecoilRoot>
+    );
+    const rendered = render(frame(false));
+    expect(screen.queryByTestId('attachment-group')).not.toBeInTheDocument();
+    act(() => emit?.({ ...image, messageId: 'msg1' }));
+    expect(screen.getByTestId('attachment-group')).toHaveAttribute('data-count', '1');
+    act(() => emit?.({ ...image, messageId: 'msg1' }));
+    expect(screen.getByTestId('attachment-group')).toHaveAttribute('data-count', '1');
+    rendered.rerender(frame(true));
+    expect(screen.getByTestId('attachment-group')).toHaveAttribute('data-count', '1');
+  });
+
+  it('routes only the selected child step from a shared attachment lookup pool', () => {
+    const sibling = {
+      ...image,
+      file_id: 'sibling',
+      stepId: 'other-step',
+      filepath: '/files/sibling.png',
+    } as TAttachment;
+    const foreign = {
+      ...image,
+      file_id: 'foreign',
+      agentId: 'other-agent',
+      filepath: '/files/foreign.png',
+    } as TAttachment;
+    renderContentParts({
+      ...baseProps,
+      content: [makeMcpToolCall('child-image', true, 'child-step', 'child-agent')],
+      attachments: [image, sibling, foreign],
+      renderUnmatchedImages: false,
+    });
+    expect(screen.getByTestId('attachment-group')).toHaveAttribute('data-count', '1');
+    expect(screen.getByTestId('attachment-group')).toHaveAttribute(
+      'data-paths',
+      '/files/child.png',
+    );
+  });
+});
 
 describe('ContentParts integration: adjacent prose identity', () => {
   afterEach(() => {

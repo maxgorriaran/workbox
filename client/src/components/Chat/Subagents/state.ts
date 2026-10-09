@@ -8,6 +8,7 @@ import type {
   SubagentControlRequest,
   SubagentUpdatePhase,
   TMessageContentParts,
+  TAttachment,
   SubagentUpdateEvent,
 } from 'librechat-data-provider';
 import type { Getter, PrimitiveAtom, WritableAtom } from 'jotai';
@@ -303,6 +304,8 @@ export type ActiveSubagentPanel = {
   prompt?: string;
   legacyOutput?: string | null;
   persistedContent?: TMessageContentParts[];
+  /** Parent-message lookup pool. Child renderers filter by each tool's agent and run-step owner. */
+  attachments?: TAttachment[];
   /** The tool call came from the server as a preview: its transcript, output or arguments are
    *  shortened or absent, so the panel loads the stored part before rendering activity. Carries
    *  what identifies the stored part and the preview's revision. */

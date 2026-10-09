@@ -627,6 +627,56 @@ describe('createToolEndCallback', () => {
     artifactPromises = [];
   });
 
+  it.each(['createToolEndCallback', 'createResponsesToolEndCallback'])(
+    '%s preserves child image tool IDs and host execution ownership',
+    async (factoryName) => {
+      const { saveBase64Image } = require('~/server/services/Files/process');
+      saveBase64Image.mockImplementation(async (_url, options) => ({
+        file_id: options.file_id,
+        filename: 'child.png',
+        filepath: '/images/child.png',
+        width: 16,
+        height: 16,
+      }));
+      const callback = require('../callbacks')[factoryName]({ req, res, artifactPromises });
+      for (const stepId of ['child-step-1', 'child-step-2']) {
+        await callback(
+          {
+            output: {
+              name: 'image_gen_oai',
+              tool_call_id: 'repeated-child-id',
+              artifact: {
+                content: [
+                  { type: 'image_url', image_url: { url: 'data:image/png;base64,c3ludGhldGlj' } },
+                ],
+                file_ids: [stepId],
+              },
+            },
+          },
+          {
+            run_id: 'parent-message',
+            thread_id: 'conversation',
+            agent_id: 'parent-agent',
+            executingAgentId: 'child-agent',
+            stepId,
+          },
+        );
+      }
+      expect(await Promise.all(artifactPromises)).toEqual([
+        expect.objectContaining({
+          toolCallId: 'repeated-child-id',
+          agentId: 'child-agent',
+          stepId: 'child-step-1',
+        }),
+        expect.objectContaining({
+          toolCallId: 'repeated-child-id',
+          agentId: 'child-agent',
+          stepId: 'child-step-2',
+        }),
+      ]);
+    },
+  );
+
   it('preserves separate owners for final search artifacts with repeated tool-call IDs', async () => {
     const toolEndCallback = createToolEndCallback({ req, res, artifactPromises });
     for (const agentId of ['agent-a', 'agent-b']) {

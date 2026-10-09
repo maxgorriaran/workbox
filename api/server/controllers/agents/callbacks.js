@@ -1102,6 +1102,7 @@ function createToolEndCallback({ req, res, artifactPromises, streamId = null, jo
             const fileMetadata = Object.assign(file, {
               messageId: metadata.run_id,
               toolCallId: output.tool_call_id,
+              ...getAttachmentOwnership(metadata),
               conversationId: metadata.thread_id,
             });
             if (!streamId && !res.headersSent) {
@@ -1467,6 +1468,7 @@ function createResponsesToolEndCallback({ req, res, tracker, artifactPromises })
             });
             const fileMetadata = Object.assign(file, {
               toolCallId: output.tool_call_id,
+              ...getAttachmentOwnership(metadata),
             });
 
             if (!fileMetadata) {

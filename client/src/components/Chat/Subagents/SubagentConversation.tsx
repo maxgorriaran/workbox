@@ -3,7 +3,7 @@ import { useAtomValue } from 'jotai';
 import { Radio } from 'lucide-react';
 import { ContentTypes } from 'librechat-data-provider';
 import { Button, Collapsible, CollapsibleContent, CollapsibleTrigger } from '@librechat/client';
-import type { TMessageContentParts } from 'librechat-data-provider';
+import type { TMessageContentParts, TAttachment } from 'librechat-data-provider';
 import type { ReactNode } from 'react';
 import type { ChildConversationTurn } from './adapters';
 import type { TranslationKeys } from '~/hooks';
@@ -177,6 +177,7 @@ function TriggerMessage({
 
 function ChildMessage({
   turn,
+  attachments,
   state,
   author,
   conversationId,
@@ -186,6 +187,7 @@ function ChildMessage({
   onLoadDetails,
 }: {
   turn: ChildConversationTurn;
+  attachments?: TAttachment[];
   state: 'ready' | 'loading' | 'error';
   author: TurnAuthor;
   conversationId?: string | null;
@@ -236,6 +238,7 @@ function ChildMessage({
     >
       <SubagentActivityContent
         activity={turn.activity}
+        attachments={attachments}
         activityId={`${turn.taskId}:assistant`}
         state={state}
         showPrompt={false}
@@ -257,6 +260,7 @@ function ChildMessage({
 
 export default function SubagentConversation({
   turns,
+  attachments,
   author,
   parentAuthor,
   conversationId,
@@ -267,6 +271,7 @@ export default function SubagentConversation({
   onLoadTurnDetails,
 }: {
   turns: ChildConversationTurn[];
+  attachments?: TAttachment[];
   /** The child agent: every assistant turn's header. */
   author: TurnAuthor;
   /** The agent that briefs the child: every parent-written turn's header. */
@@ -293,6 +298,7 @@ export default function SubagentConversation({
           <div className="px-4">
             <ChildMessage
               turn={turn}
+              attachments={attachments}
               author={author}
               conversationId={conversationId}
               fullWidth={fullWidth}

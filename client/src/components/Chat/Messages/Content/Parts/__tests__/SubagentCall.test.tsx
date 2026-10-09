@@ -8,6 +8,7 @@ import type {
   SubagentIdentity,
   SubagentUpdateEvent,
   ParentSubagentSummary,
+  TAttachment,
 } from 'librechat-data-provider';
 import type {
   SubagentAggregatorState,
@@ -28,6 +29,7 @@ import {
 } from '~/components/Chat/Subagents/state';
 import SubagentCall, { SUBAGENT_TICKER_THROTTLE_MS } from '../SubagentCall';
 import { MessageContext } from '~/Providers/MessageContext';
+import { MediaContext } from '~/Providers/MediaContext';
 import { FailedRevealContext } from '../../reveal';
 import { ChatSurfaceHarness } from 'test/harness';
 import { FOLD_GLYPH_SELECTOR } from '../../rows';
@@ -140,6 +142,7 @@ function renderWithState(args: {
   toolArgs?: Record<string, unknown>;
   subagentIdentity?: SubagentIdentity;
   runStepStatus?: PartMetadata['runStepStatus'];
+  attachments?: TAttachment[];
 }) {
   const setter = { current: null as null | ((next: SubagentProgress | null) => void) };
   let selection: ActiveSubagentPanel | null = null;
@@ -169,17 +172,19 @@ function renderWithState(args: {
               isExpanded: false,
             }}
           >
-            <FailedRevealContext.Provider value={{ tick, claimFocus: () => true }}>
-              <SubagentCall
-                toolCallId={args.toolCallId}
-                initialProgress={args.initialProgress}
-                isSubmitting={args.isSubmitting ?? false}
-                args={args.toolArgs ?? { subagent_type: 'self', description: 'compute' }}
-                output={args.output}
-                runStepStatus={args.runStepStatus}
-                subagentIdentity={args.subagentIdentity}
-              />
-            </FailedRevealContext.Provider>
+            <MediaContext.Provider value={{ toolAttachments: args.attachments }}>
+              <FailedRevealContext.Provider value={{ tick, claimFocus: () => true }}>
+                <SubagentCall
+                  toolCallId={args.toolCallId}
+                  initialProgress={args.initialProgress}
+                  isSubmitting={args.isSubmitting ?? false}
+                  args={args.toolArgs ?? { subagent_type: 'self', description: 'compute' }}
+                  output={args.output}
+                  runStepStatus={args.runStepStatus}
+                  subagentIdentity={args.subagentIdentity}
+                />
+              </FailedRevealContext.Provider>
+            </MediaContext.Provider>
           </MessageContext.Provider>
         </RecoilRoot>
       </ChatSurfaceHarness>
@@ -190,6 +195,10 @@ function renderWithState(args: {
   return {
     ...rendered,
     getSelection: () => selection,
+    setAttachments: (next: TAttachment[]) => {
+      args.attachments = next;
+      rendered.rerender(tree(0));
+    },
     setProgress: (next: SubagentProgress | null) => act(() => setter.current?.(next)),
     reveal: () => rendered.rerender(tree(1)),
   };
@@ -209,6 +218,26 @@ const event = (
 });
 
 describe('SubagentCall', () => {
+  it('keeps child tool attachments available to the open panel as files arrive', () => {
+    const first = {
+      file_id: 'image-1',
+      toolCallId: 'child-tool',
+      agentId: 'child-agent',
+      stepId: 'child-step',
+      filepath: '/images/first.png',
+    } as TAttachment;
+    const second = { ...first, file_id: 'image-2', filepath: '/images/second.png' } as TAttachment;
+    const rendered = renderWithState({
+      toolCallId: 'parent-tool',
+      initialProgress: 1,
+      attachments: [first],
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Ran agent' }));
+    expect(rendered.getSelection()?.attachments).toEqual([first]);
+    rendered.setAttachments([first, second]);
+    expect(rendered.getSelection()?.attachments).toEqual([first, second]);
+    expect(rendered.getSelection()?.attachments?.[0].toolCallId).toBe('child-tool');
+  });
   it('registers its existing header glyph for both containing fold rails', () => {
     renderWithState({ toolCallId: 'fold-glyph', initialProgress: 1 });
     const row = screen.getByRole('button', { name: 'Ran agent' }).cloneNode(true) as HTMLElement;

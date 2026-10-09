@@ -1477,6 +1477,7 @@ export default function SubagentThreadPanel({ selection }: { selection: ActiveSu
           </div>
         )}
         <SubagentConversation
+          attachments={selection.attachments}
           turns={conversationTurns}
           author={childAuthor}
           parentAuthor={isSelfSpawn && selection.event == null ? childAuthor : parentAuthor}
@@ -1510,6 +1511,7 @@ export default function SubagentThreadPanel({ selection }: { selection: ActiveSu
     activityPanel = (
       <SubagentActivity
         key={`${selection.parentMessageId}\u0000${selection.toolCallId}\u0000${selection.partIndex}`}
+        attachments={selection.attachments}
         activityId={`${selection.parentMessageId}\u0000${selection.toolCallId}\u0000${selection.partIndex}`}
         activity={activity}
         state={panelState}

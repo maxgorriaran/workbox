@@ -135,6 +135,7 @@ export default function SharedSubagentActivityDialog({
         <MessageSurfaceContext.Provider value="bg-surface-dialog">
           <SubagentActivityScrollSurface padded={false}>
             <SubagentConversation
+              attachments={selection?.attachments}
               author={childAuthor}
               parentAuthor={isSelfSpawn ? childAuthor : parentAuthor}
               turns={[

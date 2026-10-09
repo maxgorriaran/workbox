@@ -28,6 +28,10 @@ export type ChildActivityItem =
   | {
       type: 'tool';
       toolCallId: string;
+      agentId?: string;
+      stepId?: string;
+      subagentContent?: TMessageContentParts[];
+      subagentIdentity?: PartMetadata['subagentIdentity'];
       name: string;
       input?: string | Record<string, unknown>;
       output?: string;
@@ -77,6 +81,9 @@ export type ChildConversationTurn = {
 
 type ContentToolCall = {
   id?: string;
+  stepId?: string;
+  subagent_content?: TMessageContentParts[];
+  subagentIdentity?: PartMetadata['subagentIdentity'];
   args?: string | Record<string, unknown>;
   output?: string;
   name?: string;
@@ -167,6 +174,10 @@ const contentPartsToActivity = (
       {
         type: 'tool',
         toolCallId: tool.id ?? `tool-${index}`,
+        ...(part.agentId == null ? {} : { agentId: part.agentId }),
+        ...(tool.stepId == null ? {} : { stepId: tool.stepId }),
+        ...(tool.subagent_content == null ? {} : { subagentContent: tool.subagent_content }),
+        ...(tool.subagentIdentity == null ? {} : { subagentIdentity: tool.subagentIdentity }),
         name: tool.name ?? '',
         ...(tool.args == null ? {} : { input: tool.args }),
         ...(tool.output == null ? {} : { output: tool.output }),

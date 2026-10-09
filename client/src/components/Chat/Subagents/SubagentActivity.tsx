@@ -4,7 +4,7 @@ import { Button } from '@librechat/client';
 import { ContentTypes } from 'librechat-data-provider';
 import { CSSTransition } from 'react-transition-group';
 import { CheckCircle2, Clock3, Maximize2, Minimize2, XCircle } from 'lucide-react';
-import type { TMessageContentParts } from 'librechat-data-provider';
+import type { TMessageContentParts, TAttachment } from 'librechat-data-provider';
 import type { ChildActivity, ChildActivityItem } from './adapters';
 import type { TranslationKeys } from '~/hooks';
 import {
@@ -243,8 +243,12 @@ const toContentPart = (item: ChildActivityItem): TMessageContentParts => {
   }
   return {
     type: ContentTypes.TOOL_CALL,
+    ...(item.agentId == null ? {} : { agentId: item.agentId }),
     [ContentTypes.TOOL_CALL]: {
       id: item.toolCallId,
+      ...(item.stepId == null ? {} : { stepId: item.stepId }),
+      ...(item.subagentContent == null ? {} : { subagent_content: item.subagentContent }),
+      ...(item.subagentIdentity == null ? {} : { subagentIdentity: item.subagentIdentity }),
       name: item.name,
       args: item.input ?? '',
       output: item.output ?? '',
@@ -319,6 +323,7 @@ function SubagentPrompt({ prompt }: { prompt: string }) {
 export function SubagentActivityContent({
   activity,
   activityId,
+  attachments,
   state = 'ready',
   showPrompt = true,
   conversationId = null,
@@ -327,6 +332,7 @@ export function SubagentActivityContent({
 }: {
   activity: ChildActivity;
   activityId?: string;
+  attachments?: TAttachment[];
   state?: 'ready' | 'loading' | 'error';
   showPrompt?: boolean;
   conversationId?: string | null;
@@ -364,6 +370,8 @@ export function SubagentActivityContent({
     body = (
       <ContentParts
         content={parts}
+        attachments={attachments}
+        renderUnmatchedImages={false}
         messageId={activityId ?? 'subagent-activity-panel'}
         conversationId={conversationId}
         isCreatedByUser={false}
@@ -415,6 +423,7 @@ export function SubagentStatus({ activity }: { activity: ChildActivity }) {
 export default function SubagentActivity({
   activity,
   activityId,
+  attachments,
   state = 'ready',
   embedded = false,
   showPrompt = true,
@@ -423,6 +432,7 @@ export default function SubagentActivity({
   notice,
 }: {
   activity: ChildActivity;
+  attachments?: TAttachment[];
   activityId?: string;
   state?: 'ready' | 'loading' | 'error';
   embedded?: boolean;
@@ -442,6 +452,7 @@ export default function SubagentActivity({
       <SubagentActivityContent
         activity={activity}
         activityId={activityId}
+        attachments={attachments}
         state={state}
         showPrompt={showPrompt}
         onCancelControl={onCancelControl}
