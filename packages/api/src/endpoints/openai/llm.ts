@@ -161,11 +161,8 @@ function requiresResponsesApiForReasoning({
   if (typeof model !== 'string' || !responsesApiRequiredPattern.test(model)) {
     return false;
   }
-  return (
-    reasoningEffort != null &&
-    reasoningEffort !== ReasoningEffort.unset &&
-    reasoningEffort !== ReasoningEffort.none
-  );
+  /** Tools can be bound later; GPT-5.6 reasons even when effort is unset. */
+  return reasoningEffort !== ReasoningEffort.none;
 }
 
 /**
@@ -858,7 +855,8 @@ export function getOpenAILLMConfig({
   }
 
   /**
-   * Default GPT-5.6 reasoning requests to the Responses API unless explicitly set.
+   * Default GPT-5.6 to the Responses API, including when reasoning effort is unset,
+   * so function tools bound after configuration do not reach Chat Completions.
    * Reads `llmConfig.model` (reflects `addParams` overrides) and skips when
    * `dropParams` removes `reasoning_effort` later anyway (`'reasoning'` only
    * drops the nested object, not the flat param) or opts out of the Responses
@@ -870,10 +868,10 @@ export function getOpenAILLMConfig({
     dropParams != null &&
     (dropParams.includes('reasoning_effort') || dropParams.includes('useResponsesApi'));
   /**
-   * The GPT-5.6 default above is reasoning-driven, so dropping `reasoning_effort`
-   * removes its reason to route. GPT-6's is not: it takes Responses for every
-   * turn, and a drop rule clearing an unsupported stored effort must not also
-   * disable its routing. Only an explicit `useResponsesApi` drop does that.
+   * GPT-5.6 retains `reasoning_effort` drops as an explicit routing opt-out.
+   * GPT-6 takes Responses for every turn, and a drop rule clearing an unsupported
+   * stored effort must not also disable its routing. Only an explicit
+   * `useResponsesApi` drop does that.
    */
   const responsesApiExplicitlyOptedOut =
     dropParams != null && dropParams.includes('useResponsesApi');

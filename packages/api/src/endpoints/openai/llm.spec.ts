@@ -924,17 +924,71 @@ describe('getOpenAILLMConfig', () => {
       },
     );
 
-    it('should NOT default to Responses API without reasoning params', () => {
+    it.each(['gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.6-sol', 'gpt-5.6'])(
+      'should default to Responses API for %s without reasoning params',
+      (model) => {
+        const result = getOpenAILLMConfig({
+          apiKey: 'test-api-key',
+          streaming: true,
+          endpoint: EModelEndpoint.openAI,
+          modelOptions: { model },
+        });
+
+        expect(result.llmConfig).toHaveProperty('useResponsesApi', true);
+        expect(result.llmConfig).not.toHaveProperty('reasoning');
+        expect(result.llmConfig).not.toHaveProperty('reasoning_effort');
+      },
+    );
+
+    it('should default to Responses API when reasoning_effort is unset', () => {
       const result = getOpenAILLMConfig({
         apiKey: 'test-api-key',
         streaming: true,
         endpoint: EModelEndpoint.openAI,
         modelOptions: {
           model: 'gpt-5.6-terra',
+          reasoning_effort: ReasoningEffort.unset,
         },
       });
 
-      expect(result.llmConfig).not.toHaveProperty('useResponsesApi');
+      expect(result.llmConfig).toHaveProperty('useResponsesApi', true);
+      expect(result.llmConfig).not.toHaveProperty('reasoning');
+      expect(result.llmConfig).not.toHaveProperty('reasoning_effort');
+    });
+
+    it.each([
+      {
+        name: 'model parameter opt-out',
+        config: { modelOptions: { model: 'gpt-5.6-terra', useResponsesApi: false } },
+      },
+      { name: 'addParams opt-out', config: { addParams: { useResponsesApi: false } } },
+      { name: 'route drop', config: { dropParams: ['useResponsesApi'] } },
+      { name: 'effort drop', config: { dropParams: ['reasoning_effort'] } },
+      {
+        name: 'disabled reasoning format',
+        config: { reasoningFormat: ReasoningParameterFormat.disabled },
+      },
+      { name: 'custom gateway', config: { baseURL: 'https://gateway.example.com/v1' } },
+      { name: 'custom endpoint', config: { endpoint: 'custom' } },
+      { name: 'OpenRouter', config: { useOpenRouter: true } },
+      {
+        name: 'explicit default effort none',
+        config: { defaultParams: { reasoning_effort: ReasoningEffort.none } },
+      },
+      {
+        name: 'explicit addParams effort none',
+        config: { addParams: { reasoning_effort: ReasoningEffort.none } },
+      },
+    ])('should preserve $name without stored reasoning params', ({ config }) => {
+      const result = getOpenAILLMConfig({
+        apiKey: 'test-api-key',
+        streaming: true,
+        endpoint: EModelEndpoint.openAI,
+        modelOptions: { model: 'gpt-5.6-terra' },
+        ...config,
+      });
+
+      expect(result.llmConfig.useResponsesApi).not.toBe(true);
       expect(result.llmConfig).not.toHaveProperty('reasoning');
     });
 
