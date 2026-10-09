@@ -15,13 +15,50 @@ import type {
   DocumentResult,
   ServerRequest,
 } from '~/types';
+import type { ReachableAgent } from '~/agents/traversal';
 import {
   getFileStream,
   getConfiguredFileSizeLimit,
   isAttachmentObjectNotFoundError,
 } from './utils';
 import { validatePdf, validateBedrockDocument } from '~/files/validation';
+import { collectReachableAgents } from '~/agents/traversal';
 import { runGuardedEncode } from './memoryGuard';
+
+interface DocumentAgent extends ReachableAgent<DocumentAgent> {
+  provider?: string;
+  model_parameters?: { useResponsesApi?: boolean | null } | null;
+}
+
+interface DocumentEncodingParams {
+  provider: Providers;
+  endpoint?: string;
+  useResponsesApi?: boolean;
+  model?: string;
+  agent?: DocumentAgent;
+  agentConfigs?: ReadonlyMap<string, DocumentAgent>;
+}
+
+function documentFormat(provider: string, useResponsesApi?: boolean | null): string {
+  if (provider === Providers.GOOGLE || provider === Providers.VERTEXAI) return Providers.GOOGLE;
+  if (isOpenAILikeProvider(provider)) return useResponsesApi ? 'responses' : 'completions';
+  return provider;
+}
+
+/** Use initialized agents' effective routes, including model-based Responses defaults.
+ * A shared history cannot carry a block encoded only for the primary provider. */
+function needsStandardDocumentBlocks(params: DocumentEncodingParams): boolean {
+  const formats = new Set([documentFormat(params.provider, params.useResponsesApi)]);
+  for (const agent of collectReachableAgents([
+    params.agent,
+    ...(params.agentConfigs?.values() ?? []),
+  ])) {
+    if (agent.provider) {
+      formats.add(documentFormat(agent.provider, agent.model_parameters?.useResponsesApi));
+    }
+  }
+  return formats.size > 1;
+}
 
 /** Anthropic only accepts PDFs as base64 documents; textual types must use a text source */
 function getAnthropicDocumentSource(
@@ -69,7 +106,31 @@ function formatDocumentBlock(
   filename: string | undefined,
   useResponsesApi: boolean | undefined,
   model?: string,
+  useStandardBlocks = false,
 ): DocumentBlock | null {
+  if (useStandardBlocks && mimeType === 'application/pdf') {
+    const resolvedFilename = filename ?? 'document';
+    return {
+      type: 'file',
+      source_type: 'base64',
+      mime_type: mimeType,
+      data: content,
+      metadata: {
+        filename: resolvedFilename,
+        /** Bedrock's document name excludes punctuation accepted in a filename. */
+        name: resolvedFilename.replace(/[^a-zA-Z0-9\s\-()[\]]/g, '_').slice(0, 200),
+        ...(filename ? { context: `File: "${filename}"` } : {}),
+        citations: { enabled: true },
+      },
+    };
+  }
+  if (useStandardBlocks && isAnthropicTextDocumentType(mimeType)) {
+    return {
+      type: 'text',
+      text: `File: "${filename ?? 'document'}"\n\n${Buffer.from(content, 'base64').toString('utf8')}`,
+    };
+  }
+
   if (provider === Providers.ANTHROPIC) {
     const source = getAnthropicDocumentSource(mimeType, content);
     if (!source) {
@@ -198,7 +259,7 @@ function getBase64DecodedByteCount(content: string): number {
 export async function encodeAndFormatDocuments(
   req: ServerRequest,
   files: IMongoFile[],
-  params: { provider: Providers; endpoint?: string; useResponsesApi?: boolean; model?: string },
+  params: DocumentEncodingParams,
   getStrategyFunctions: (source: string) => StrategyFunctions,
 ): Promise<DocumentResult> {
   const { provider, endpoint, useResponsesApi, model } = params;
@@ -223,6 +284,7 @@ export async function encodeAndFormatDocuments(
   }
 
   const configuredFileSizeLimit = getConfiguredFileSizeLimit(req, { provider, endpoint });
+  const useStandardBlocks = needsStandardDocumentBlocks(params);
 
   const results = await Promise.allSettled(
     processableFiles.map((file) =>
@@ -272,16 +334,31 @@ export async function encodeAndFormatDocuments(
       const sanitizedName = (file.filename || 'document')
         .replace(/[^a-zA-Z0-9\s\-()[\]]/g, '_')
         .slice(0, 200);
-      result.documents.push({
-        type: 'document',
-        document: {
-          name: sanitizedName,
-          format,
-          source: {
-            bytes: fileBuffer,
+      const standardBlock =
+        useStandardBlocks &&
+        (mimeType === 'application/pdf' || isAnthropicTextDocumentType(mimeType))
+          ? formatDocumentBlock(
+              provider,
+              mimeType,
+              content,
+              file.filename,
+              useResponsesApi,
+              model,
+              true,
+            )
+          : undefined;
+      result.documents.push(
+        standardBlock ?? {
+          type: 'document',
+          document: {
+            name: sanitizedName,
+            format,
+            source: {
+              bytes: fileBuffer,
+            },
           },
         },
-      });
+      );
       result.files.push(metadata);
     } else if (file.type === 'application/pdf' && isDocSupported) {
       const pdfBuffer = Buffer.from(content, 'base64');
@@ -305,6 +382,7 @@ export async function encodeAndFormatDocuments(
         file.filename,
         useResponsesApi,
         model,
+        useStandardBlocks,
       );
       if (block) {
         result.documents.push(block);
@@ -325,6 +403,7 @@ export async function encodeAndFormatDocuments(
         file.filename,
         useResponsesApi,
         model,
+        useStandardBlocks,
       );
       if (block) {
         result.documents.push(block);

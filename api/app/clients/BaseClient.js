@@ -1747,6 +1747,8 @@ class BaseClient {
         endpoint: this.options.agent?.endpoint ?? this.options.endpoint,
         useResponsesApi: this.usesResponsesApi(),
         model: this.modelOptions?.model ?? this.model,
+        agent: this.options.agent,
+        agentConfigs: this.agentConfigs,
       },
       getStrategyFunctions,
     );

@@ -104,6 +104,20 @@ export interface OpenAIInputFileBlock {
   file_data: string;
 }
 
+/** LangChain file block converted by each model into its own document format. */
+export interface StandardFileDocumentBlock {
+  type: 'file';
+  source_type: 'base64';
+  mime_type: string;
+  data: string;
+  metadata: {
+    filename: string;
+    name: string;
+    context?: string;
+    citations: { enabled: boolean };
+  };
+}
+
 /** Bedrock Converse API document block (passthrough via @langchain/aws) */
 export interface BedrockDocumentBlock {
   type: 'document';
@@ -122,6 +136,7 @@ export type DocumentBlock =
   | OpenAIFileBlock
   | OpenAITextDocumentBlock
   | OpenAIInputFileBlock
+  | StandardFileDocumentBlock
   | BedrockDocumentBlock;
 
 export interface DocumentResult {
